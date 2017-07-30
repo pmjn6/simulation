@@ -1,0 +1,125 @@
+---
+title: "Simulation and Plotting"
+author: "Pejman Mahboubi"
+date: "7/30/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+
+This document is based on the book " Data Analysis Using Regression and Multilevel/Hierarchical Models" by Gelman and Hill, chapter 4. 
+
+## Data
+
+We are using the kidiq.dta which is available in Gelman's webpage <http://www.stat.columbia.edu/~gelman/arm/software/>. After downloading the zip file, go to "ARM_Data/child.iq/kidiq.dta". To open the file, I installed package 
+```{r}
+library(foreign)
+df<-read.dta(file="~/Desktop/math/mixedmodel/ARM_Data/child.iq/kidiq.dta") 
+head(df)
+```
+
+## Bulding the model
+Let's use two predictors, mom.hs and mom.iq, to predict the kid.score. We also include the interaction term. We use different colors to indentify kids whose mom has high school diploma, versus others.
+
+```{r }
+library(ggplot2)
+fit.3 <- lm (kid_score ~ mom_hs*mom_iq,df)
+df$colors<-factor(ifelse(df$mom_hs==1,"red","blue"),label=c("hs=0","hs=1"))
+d=data.frame(ic=c(coef(fit.3)[1],coef(fit.3)[1]+coef(fit.3)[2]), 
+             s=c(coef(fit.3)[3],coef(fit.3)[3]+coef(fit.3)[4]),
+             colors = levels(df$colors),
+             group=c("hs","No_hs"))
+ggplot(data = df[,-c(4,5)],mapping = aes(x = mom_iq,y = kid_score,
+                                         color = colors)) +
+        geom_point()+
+        geom_abline(data=d,mapping=aes(slope=s, intercept=ic,color=colors))
+```
+
+We can also visualize the confidence interval, using simulation as follows. The model coefficients are 
+```{r}
+beta<-coef(fit.3)
+print(beta)
+```
+
+Consider a student, say student1, whose mom has a high school diploma and has mom\_iq$= 103.5$. To predict his or her score, we form a vector of predictors, call it predictor1, and do the following  
+```{r}
+predictor1=c(1,1,103.5,103.5)
+score=coef(fit.3)%*%predictor1
+print(score)
+```
+
+Or we could simply use the predict function
+```{r}
+predict(object = fit.3,newdata  = data.frame(mom_hs=1,mom_iq=103.5,1))
+```
+
+However, we cannot use the predict() function for the simulated coefficients. The covariance matrix  below measures the uncertainty in coefficients beta. 
+```{r}
+covvar <- vcov(fit.3)
+print(covvar)
+```
+Therefore, we can sample a set of 1000 coefficients by 
+```{r}
+library(MASS)
+beta.sim <- mvrnorm(1000, beta,covvar)
+head(beta.sim)
+```
+beat.sim stores $1000$ sets of coefficients that are likely to be obtained from other samples (here df is a sample). 
+We can compute the student1's score for all these different coefficients by 
+```{r}
+scores=beta.sim%*%predictor1
+head(scores)
+```
+
+If student2 has $predictor2=c(1,1,95,95)$ then to compute all 1000 predictions (corresponding to each set of coefficients) for both students we first form the matrix of predictors by 
+```{r}
+predictor2=c(1,1,95,95)
+predictors=matrix(c(predictor1,predictor2),nrow = 4,byrow = FALSE)
+head(predictors)
+```
+and then repeat the same matrix multiplication as above,
+```{r}
+scores<-beta.sim%*%predictors
+head(scores)
+```
+The predict function, as mentioned above, does not allow us to work with simulated coefficients. However for the sake of completeness let me show you how to use it to predict the score for multiple students.
+```{r}
+predict(object = fit.3,newdata  = data.frame(mom_hs=c(1,1),mom_iq=c(103.5,95)))
+```
+Then we define the values at which the variables are held constant. This is because we cannot go beyond 2 dimensions. Therefore, by letting y axis to denote the kid's score, we are confined to one predictor. Let's set mom\_hs to 1 and create values for mom\_iq in a range suggested by the data
+
+```{r}
+hs1<-subset(df,df$mom_hs==1)
+mn<-round(min(hs1$mom_iq))
+mx<-round(max(hs1$mom_iq))
+intrctn<-mom_iq<-seq(from = mn, to = mx,by = .1)
+x <- cbind(1,1, mom_iq,intrctn)
+head(x)
+```
+Next, for all range of $mom\_iq$ we compute kid\_score, using all different coefficients. We denoted 7 different scores of 3 different students computed based on 7 different likely coefficints.
+```{r}
+SCORES<-x%*%t(beta.sim)
+SCORES[c(1,300,600),(1:7)*100]
+```
+Next we plot the 1000 values of each iq, as a shaded area. To this end, we compute the maximum, minimum and the predicted value for each iq.
+```{r}
+df2<-data.frame(mom_iq=x[,3],
+min=apply(X = SCORES,MARGIN = 1,min),
+max=apply(X = SCORES,MARGIN = 1,max), 
+predicted=predict(object = fit.3,newdata = data.frame(mom_hs=1,mom_iq=x[,3]))
+)
+head(df2)
+```
+Next, comes the plot
+```{r}
+ggplot(df2, aes(x=mom_iq)) + 
+  geom_line(aes(y=predicted), colour="blue") + 
+  geom_ribbon(aes(ymin=min, ymax=max), alpha=0.2)
+```
+
+
+
